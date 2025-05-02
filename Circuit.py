@@ -19,6 +19,7 @@ from Settings import settings
 from Solar import Solar
 from math import sin, cos
 import pandas as pd
+import os
 
 #  This class "creates" circuits.
 class Circuit:
@@ -53,6 +54,7 @@ class Circuit:
         self.solar_sweep_data = {
             "x_data": [],
             "y_data": [],
+            "time": [],
         }
 
         self.Ybus = None # system admittance matrix
@@ -110,7 +112,7 @@ class Circuit:
         # No need to assign bus as PQ or append PQ index; bus already set to this by default
 
 
-    def sweep_solar(self, dynamic_load=False):
+    def sweep_solar(self, dynamic_load=False, csv=False):
         """
         Sweep through hours of day to visualize how solution changes
         :param dynamic_load: Boolean dictating whether loads change throughout day
@@ -119,6 +121,7 @@ class Circuit:
         self.solar_sweep_data = {
             "x_data": [],
             "y_data": [],
+            "time": [],
         }
         from Solution import NewtonRaphson
         if self.changed is True:
@@ -133,6 +136,7 @@ class Circuit:
             self.voltages = self.to_rectangular()
             self.update_voltages_and_angles()
             self.update_generator_power()
+            self.solar_sweep_data["time"].append(time)
             self.solar_sweep_data["x_data"].append(self.x)
             self.solar_sweep_data["y_data"].append(self.y)
             print(f"Time = {time} hr")
@@ -140,6 +144,9 @@ class Circuit:
             self.modify_solar(Constants.solar_profile[time], True)
             if dynamic_load:
                 self.modify_load(Constants.load_profile_factor[time], True)
+
+        if csv:
+            self.write_sweep_results_to_csv()
 
 
     def modify_solar(self, irradiance: float, restore_default=False):
@@ -182,6 +189,60 @@ class Circuit:
                 bus.subtract_power(load.real_rated * factor, load.reactive_rated * factor)
 
 
+    def write_sweep_results_to_csv(self, filename: str = "solar_sweep_results.csv"):
+        """
+        Writes the collected solar sweep data (voltages, angles, powers) to a CSV file.
+        :param filename: The name of the CSV file to create.
+        """
+        if not self.solar_sweep_data["time"]:
+            print("No sweep data available to write. Run 'sweep_solar' first.")
+            return
+
+        all_rows_data = []
+        num_steps = len(self.solar_sweep_data["time"])
+
+        for i in range(num_steps):
+            time_step = self.solar_sweep_data["time"][i]
+            x_df = self.solar_sweep_data["x_data"][i]
+            y_df = self.solar_sweep_data["y_data"][i]
+
+            row_data = {'time_hour': time_step}
+
+            if x_df is not None:
+                for index, value in x_df.iloc[:, 0].items():
+                    row_data[index] = value
+
+            if y_df is not None:
+                for index, value in y_df.iloc[:, 0].items():
+                    row_data[index] = value
+
+            all_rows_data.append(row_data)
+
+        results_df = pd.DataFrame(all_rows_data)
+
+        # Convert angle columns from radians to degrees
+        for col in results_df.columns:
+            if col.startswith('d'):
+                results_df[col] = np.degrees(results_df[col])
+
+        time_col = ['time_hour']
+        v_cols = sorted([col for col in results_df.columns if col.startswith('V')])
+        d_cols = sorted([col for col in results_df.columns if col.startswith('d')])
+        p_cols = sorted([col for col in results_df.columns if col.startswith('P')])
+        q_cols = sorted([col for col in results_df.columns if col.startswith('Q')])
+        ordered_cols = [col for col in (time_col + v_cols + d_cols + p_cols + q_cols) if
+                        col in results_df.columns]
+        results_df = results_df[ordered_cols]
+
+        # Save to PyCharm project directory
+        project_dir = os.path.dirname(os.path.abspath(__file__))
+        filepath = os.path.join(project_dir, filename)
+
+        try:
+            results_df.to_csv(filepath, index=False, float_format='%.6f')
+            print(f"Solar sweep results successfully written to '{filepath}'")
+        except Exception as e:
+            print(f"Error writing sweep results to CSV: {e}")
 
 
     def add_bus(self, name: str, voltage: float):

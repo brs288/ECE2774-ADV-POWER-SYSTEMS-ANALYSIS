@@ -59,7 +59,7 @@ def DyanamicSolarSevenBusValidation():
     FastDecoupledValidation(circ)
     NewtonRaphValidation(circ)
     circ.add_solar("Solar1", "bus7", 20, 1, "unity")
-    circ.sweep_solar(True)
+    circ.sweep_solar(True, True)
 
 
 def SevenPowerBusSystemValidation():
