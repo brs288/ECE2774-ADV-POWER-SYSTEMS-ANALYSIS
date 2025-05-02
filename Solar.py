@@ -21,19 +21,23 @@ class Solar:
         :param bus: Bus connection to the generator
         :param real_power: Real power supplied by generator in [MW]
         :param power_factor: Constant power factor between 0 -> 1
-        :param pf_mode: String for whether power factor is "leading" or "lagging"
+        :param pf_mode: String for whether power factor is "leading", "lagging", or "unity"
         """
         self.name = name
         self.bus = bus
-        self.type = 'PV_PQ'
+        self.real_rated = real_power * 1e6
 
         # Validation for power factor
         if not (0 < power_factor <= 1.0):
             raise ValueError("Target Power Factor must be between 0 (exclusive) and 1 (inclusive).")
         self.power_factor = power_factor
 
-        if pf_mode.lower() not in ['lagging', 'leading']:
-            raise ValueError("pf_mode must be either 'lagging' or 'leading'.")
+        if power_factor != 1 and pf_mode.lower() == 'unity':
+            print("Note: Power factor overridden to 1 since mode is set to unity")
+            self.power_factor = 1
+
+        if pf_mode.lower() not in ['lagging', 'leading', 'unity']:
+            raise ValueError("pf_mode must be either 'lagging', 'leading', or 'unity'.")
         self.pf_mode = pf_mode.lower()
 
         # Validation for real power
@@ -114,8 +118,7 @@ class Solar:
         :return:
         """
         return (f"PVGenerator(Name: {self.name}, Bus: {self.bus}, "
-                f"P: {self.real_power / 1e6:.3f} MW, Q: {self.reactive_power / 1e6:.3f} MVAR, "
-                f"Type: {self.type})")
+                f"P: {self.real_power / 1e6:.3f} MW, Q: {self.reactive_power / 1e6:.3f} MVAR")
 
 
 if __name__ == '__main__':
@@ -130,7 +133,7 @@ if __name__ == '__main__':
     print(f"  Complex Power S = {pv_plant_lead.get_s():.3f} MVA")
 
     pv_plant_unity = Solar(name="solar3", bus="bus10", real_power=10.0, power_factor=1.0,
-                           pf_mode='lagging')
+                           pf_mode='unity')
     print(pv_plant_unity)
     print(f"  Complex Power S = {pv_plant_unity.get_s():.3f} MVA")
 

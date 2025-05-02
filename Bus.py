@@ -68,6 +68,17 @@ class Bus:
         self.reactive_power += reactive
 
 
+    def subtract_power(self, real: float, reactive: float):
+        """
+        Subtract power from bus
+        :param real:
+        :param reactive:
+        :return:
+        """
+        self.real_power -= real
+        self.reactive_power -= reactive
+
+
 # validation tests
 if __name__ == '__main__':
     from Bus import Bus

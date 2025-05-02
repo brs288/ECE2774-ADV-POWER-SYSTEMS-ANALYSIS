@@ -6,7 +6,7 @@ Filename: Circuit.py
 Author: Justin Lipner, Bailey Stout
 Date: 2025-02-03
 """
-
+import Constants
 from Component import Load, Generator
 import numpy as np
 from Bus import Bus
@@ -16,6 +16,7 @@ from Geometry import Geometry
 from Transformer import Transformer
 from Conductor import Conductor
 from Settings import settings
+from Solar import Solar
 from math import sin, cos
 import pandas as pd
 
@@ -40,6 +41,7 @@ class Circuit:
         self.transformers = {}
         self.loads = {}
         self.generators = {}
+        self.solar = {}
 
         self.count = 0
         self.slack_bus = str
@@ -48,12 +50,16 @@ class Circuit:
         self.pv_indexes = []
         self.pq_and_pv_indexes = []
         self.bus_order = []
+        self.solar_sweep_data = {
+            "x_data": [],
+            "y_data": [],
+        }
 
         self.Ybus = None # system admittance matrix
         self.x = None # stores bus voltages and angles after power flow is ran
         self.y = None # stores bus power injections after power flow is ran
         self.voltages = None
-        
+
         self.changed = False
 
 
@@ -75,7 +81,109 @@ class Circuit:
         """
         settings.set_freq(f)
 
-    
+
+    def add_solar(self, name: str, bus: str, real_power: float, power_factor: float, pf_mode: str):
+        """
+        Adds a solar generator to the system.
+        :param name: Name of solar object
+        :param bus: Bus connection
+        :param real_power: Real power [MW]
+        :param power_factor: Power factor between 0 -> 1
+        :param pf_mode: Power factor "leading", "lagging", or "unity"
+        :return:
+        """
+        # Validate whether solar can be added
+        if name in self.solar:
+            print(f"{name} already exists. No changes to circuit")
+            return
+        if bus not in self.buses:
+            print(f"{bus} does not exist. No changes to circuit.")
+            return
+        if len(self.generators) == 0:
+            print(f"Must create generator before solar can be added")
+            return
+
+        solar = Solar(name, bus, real_power, power_factor, pf_mode)
+        self.solar.update({name: solar})
+        solar_s = solar.get_s()
+        self.buses[bus].set_power(np.real(solar_s) * 1e6, np.imag(solar_s) * 1e6)
+        # No need to assign bus as PQ or append PQ index; bus already set to this by default
+
+
+    def sweep_solar(self, dynamic_load=False):
+        """
+        Sweep through hours of day to visualize how solution changes
+        :param dynamic_load: Boolean dictating whether loads change throughout day
+        :return:
+        """
+        self.solar_sweep_data = {
+            "x_data": [],
+            "y_data": [],
+        }
+        from Solution import NewtonRaphson
+        if self.changed is True:
+            self.calc_Ybus()
+            self.changed = False
+        for time in range(24):
+            self.modify_solar(Constants.solar_profile[time])
+            if dynamic_load:
+                self.modify_load(Constants.load_profile_factor[time])
+            solution = NewtonRaphson(self, False)
+            self.x, self.y = solution.newton_raph()
+            self.voltages = self.to_rectangular()
+            self.update_voltages_and_angles()
+            self.update_generator_power()
+            self.solar_sweep_data["x_data"].append(self.x)
+            self.solar_sweep_data["y_data"].append(self.y)
+            print(f"Time = {time} hr")
+            self.print_data()
+            self.modify_solar(Constants.solar_profile[time], True)
+            if dynamic_load:
+                self.modify_load(Constants.load_profile_factor[time], True)
+
+
+    def modify_solar(self, irradiance: float, restore_default=False):
+        """
+        Modify real power output by each solar object in circuit dependent on irradiance
+        :param irradiance: Normalized irradiance factor
+        :param restore_default: Restore back to rated
+        :return:
+        """
+        for solar in self.solar.values():
+            bus = self.buses[solar.bus]
+            if restore_default is True:
+                solar.real_power = solar.real_rated
+                bus.subtract_power(solar.real_rated * irradiance, 0)
+                bus.set_power(solar.real_rated, 0)
+            else:
+                solar.real_power = solar.real_rated * irradiance
+                bus.subtract_power(solar.real_rated, 0)
+                bus.set_power(solar.real_rated * irradiance, 0)
+
+
+    def modify_load(self, factor: float, restore_default=False):
+        """
+        Modify real power by each load object in circuit dependent on time
+        :param factor: Factor by which load is changed
+        :param restore_default: Restore back to rated
+        :return:
+        """
+        for load in self.loads.values():
+            bus = self.buses[load.bus]
+            if restore_default is True:
+                load.real_power = load.real_rated
+                load.reactive_power = load.reactive_rated
+                bus.set_power(load.real_rated * factor, load.reactive_rated * factor)
+                bus.subtract_power(load.real_rated, load.reactive_rated)
+            else:
+                load.real_power = load.real_rated * factor
+                load.reactive_power = load.reactive_rated * factor
+                bus.set_power(load.real_rated, load.reactive_rated)
+                bus.subtract_power(load.real_rated * factor, load.reactive_rated * factor)
+
+
+
+
     def add_bus(self, name: str, voltage: float):
         """
         Adds a bus to the system.
@@ -106,7 +214,7 @@ class Circuit:
         if name in self.loads:
             print(f"{name} already exists. No changes to circuit.")
             return
-        
+
         if bus not in self.buses:
             print(f"{bus} does not exist. No changes to circuit.")
             return
@@ -128,16 +236,16 @@ class Circuit:
         :param length: Length of transmission line
         :return:
         """
-        
+
         if name in self.transmission_lines:
             print(f"{name} already exists. No changes to circuit")
             return
-        
+
         tline = TransmissionLine(name, self.get_bus(bus1), self.get_bus(bus2), self.get_bundle(bundle), self.get_geometry(geometry), length)
         self.transmission_lines.update({name: tline})
         self.changed = True
 
-    
+
     def add_tline_from_parameters(self, name: str, bus1: str, bus2: str, R: float, X: float, B: float):
         """
         Adds a transmission line to system.
@@ -149,16 +257,16 @@ class Circuit:
         :param B: per unit shunt admittance
         :return:
         """
-        
+
         if name in self.transmission_lines:
             print(f"{name} already exists. No changes to circuit")
             return
-        
+
         tline = TransmissionLine.from_parameters(name, self.get_bus(bus1), self.get_bus(bus2), R, X, B)
         self.transmission_lines.update({name: tline})
         self.changed = True
-    
-    
+
+
     def add_transformer(self, name: str, type: str, bus1: str, bus2: str, power_rating: float,
                         impedance_percent: float, x_over_r_ratio: float, gnd_impedance=None):
         """
@@ -174,12 +282,12 @@ class Circuit:
         if name in self.transformers:
             print(f"{name} already exists. No changes to circuit")
             return
-        
+
         transformer = Transformer(name, type, self.get_bus(bus1), self.get_bus(bus2), power_rating, impedance_percent,
                                       x_over_r_ratio, gnd_impedance)
         self.transformers.update({name: transformer})
         self.changed = True
-    
+
 
     def add_generator(self, name: str, bus: str, voltage: float, real_power: float, pos_imp = 0.0, neg_imp = 0.0, zero_imp = 0.0, gnd_imp = 0.0, var_limit = float('inf')):
         """
@@ -198,11 +306,11 @@ class Circuit:
         if name in self.generators:
             print(f"{name} already exists. No changes to circuit")
             return
-        
+
         if bus not in self.buses:
             print(f"{bus} does not exist. No changes to circuit")
             return
-    
+
         if len(self.generators) == 0:
             gen = Generator(name, bus, voltage, real_power, pos_imp, neg_imp, zero_imp, gnd_imp, var_limit)
             self.generators.update({name: gen})
@@ -211,7 +319,7 @@ class Circuit:
             self.slack_index = self.buses[bus].index
             self.pq_indexes.remove(self.buses[bus].index)
             self.buses[bus].set_power(real_power*1e6, 0)
-        
+
         else:
             gen = Generator(name, bus, voltage, real_power, pos_imp, neg_imp, zero_imp, gnd_imp, var_limit)
             self.generators.update({name: gen})
@@ -250,7 +358,7 @@ class Circuit:
         """
         if name in self.bundles:
             print(f"{name} already exists. No changes to circuit")
-        
+
         else:
             bundle = Bundle(name, num_conductors, spacing, self.get_conductor(conductor))
             self.bundles.update({name: bundle})
@@ -266,7 +374,7 @@ class Circuit:
         """
         if name in self.geometries:
             print("Name already exists. No changes to circuit")
-    
+
         else:
             geometry = Geometry(name, x, y)
             self.geometries.update({name: geometry})
@@ -279,7 +387,7 @@ class Circuit:
         :return:
         """
         return self.conductors[name]
-    
+
 
     def get_bus(self, name: str):
         """
@@ -288,7 +396,7 @@ class Circuit:
         :return:
         """
         return self.buses[name]
-    
+
 
     def get_bundle(self, name: str):
         """
@@ -297,7 +405,7 @@ class Circuit:
         :return:
         """
         return self.bundles[name]
-    
+
 
     def get_geometry(self, name: str):
         """
@@ -306,7 +414,7 @@ class Circuit:
         :return:
         """
         return self.geometries[name]
-    
+
 
     def calc_Ybus(self):
         """
@@ -336,7 +444,7 @@ class Circuit:
 
         self.Ybus = y_bus
         return y_bus
-    
+
 
     def print_Ybus(self):
         """
@@ -360,7 +468,7 @@ class Circuit:
         if self.buses[new].type != "PV":
             print(f"Cannot make '{self.buses[new].name}' a slack bus because it has no generator connection. No changes made to circuit.")
             return
-        
+
         self.buses[old].set_type("PV")
         self.buses[new].set_type("Slack")
         self.slack_bus = new
@@ -381,7 +489,7 @@ class Circuit:
         N = self.count
         Ymag = np.abs(self.Ybus)
         theta = np.angle(self.Ybus)
-        
+
         d = x[x.index.str.startswith('d')]
         V = x[x.index.str.startswith('V')]
         P = []
@@ -396,7 +504,7 @@ class Circuit:
                 dn = float(d.iloc[n, 0])
                 sum1 += Ykn*Vn*cos(dk - dn - theta[k-1, n])
                 sum2 += Ykn*Vn*sin(dk - dn - theta[k-1, n])
-            
+
             Vk = float(V.iloc[k-1, 0])
             Pk = Vk*sum1
             P.append(Pk)
@@ -404,7 +512,7 @@ class Circuit:
               continue
             Qk = Vk*sum2
             Q.append(Qk)
-            
+
         P = np.array(P)
         Q = np.array(Q)
         y = np.concatenate((P, Q))
@@ -431,7 +539,7 @@ class Circuit:
         self.print_data()
         print()
 
-    
+
     def do_fast_decoupled(self, var_limit=False):
         """
         Uses the Fast Decoupled algorithm to solve for the system's bus voltages and angles.
@@ -449,7 +557,7 @@ class Circuit:
         self.print_data()
         print()
 
-    
+
     def do_dc_power_flow(self):
         """
         Uses the DC Power Flow algorithm to solve for the system's bus voltages and angles.
@@ -465,7 +573,7 @@ class Circuit:
         self.update_generator_power()
         self.print_data(True)
         print()
-    
+
 
     def to_rectangular(self):
         """Converts the magnitude and angle values of the bus voltages into rectangular complex voltages
@@ -478,7 +586,7 @@ class Circuit:
         for i in range(N):
             V[i] = mag[i]*(cos(angles[i])+1j*sin(angles[i]))
         return V
-    
+
 
     def update_voltages_and_angles(self):
         """
@@ -492,7 +600,7 @@ class Circuit:
             index = self.buses[bus].index-1
             self.buses[bus].set_bus_v(V.iloc[index, 0])
             self.buses[bus].set_angle(d.iloc[index, 0])
-    
+
 
     def update_generator_power(self):
         """
@@ -505,7 +613,7 @@ class Circuit:
         for gen in self.generators.values():
             index = self.buses[gen.bus].index-1
             gen.set_power(P.iloc[index, 0]*settings.powerbase/1e6, Q.iloc[index, 0]*settings.powerbase/1e6)
-            
+
 
     def print_data(self, dcpowerflow=False):
         """
@@ -529,7 +637,7 @@ class Circuit:
             voltages.append((bus.V/1e3).round(3))
             number.append(bus.index)
             name.append(bus.name)
-        
+
         if dcpowerflow==False:
             for load in self.loads.values():
                 index = self.buses[load.bus].index-1
@@ -539,12 +647,12 @@ class Circuit:
             for load in self.loads.values():
                 index = self.buses[load.bus].index-1
                 load_mw[index, 0] = load.real_power/1e6
-        
+
         for gen in self.generators.values():
             index = self.buses[gen.bus].index-1
             gen_mw[index, 0] = round(gen.real_power/1e6, 2)
             gen_mvar[index, 0] = round(gen.reactive_power/1e6, 2)
-            
+
 
         voltages = np.array([voltages]).T
         nominal_voltages = np.array([nominal_voltages]).T
@@ -557,7 +665,7 @@ class Circuit:
         pd.set_option('display.max_columns', None)
         pd.set_option('display.width', 1000)
         print(datadf.to_string())
-        
+
 
 
 # This class does symmetrical/three phase fault analysis.
@@ -575,7 +683,7 @@ class ThreePhaseFault():
         self.Ifn = float  # fault current
         self.Ipn = None  # phase current, will become an np.ndarray
         self.fault_voltages = None  # will become an np.ndarray
-    
+
 
     def calc_faultYbus(self):
         """
@@ -586,7 +694,7 @@ class ThreePhaseFault():
         for gen in self.circuit.generators.values():
             index = self.circuit.buses[gen.bus].index-1
             Ybus[index, index] += 1/(gen.X1)
-        
+
         # calculates impedance for each load in the system
         if len(self.circuit.loads) != 0:
             for load in self.circuit.loads.values():
@@ -599,9 +707,9 @@ class ThreePhaseFault():
                 Z = V/I
                 Zpu = Z/Zbase
                 Ybus[index-1, index-1] += 1/Zpu
-                
+
         return Ybus
-    
+
 
     def calc_fault_values(self):
         """
@@ -618,7 +726,7 @@ class ThreePhaseFault():
         self.print_voltages()
         print()
         print()
-    
+
 
     def print_current(self):
         """
@@ -675,7 +783,7 @@ class UnsymmetricalFaults():
         self.Ifn = float
         self.Ipn = None
         self.fault_voltages = None
-    
+
 
     def calc_zero(self):
         """
@@ -689,7 +797,7 @@ class UnsymmetricalFaults():
             bus = self.circuit.buses[gen.bus]
             index = bus.index-1
             Ybus0[index, index] += gen.Y0prim
-        
+
         for line in self.circuit.transmission_lines.values():
             i = line.bus1.index-1
             j = line.bus2.index-1
@@ -697,7 +805,7 @@ class UnsymmetricalFaults():
             Ybus0[i, j] += line.yprim0.iloc[0, 1]
             Ybus0[j, i] += line.yprim0.iloc[1, 0]
             Ybus0[j, j] += line.yprim0.iloc[1, 1]
-        
+
         for xfmr in self.circuit.transformers.values():
             i = xfmr.bus1.index-1
             j = xfmr.bus2.index-1
@@ -719,7 +827,7 @@ class UnsymmetricalFaults():
         for gen in self.circuit.generators.values():
             index = self.circuit.buses[gen.bus].index-1
             Ybus[index, index] += 1/(gen.X1)
-        
+
         # calculates impedance for each load in the system
         if len(self.circuit.loads) != 0:
             for load in self.circuit.loads.values():
@@ -734,7 +842,7 @@ class UnsymmetricalFaults():
                 Ybus[index-1, index-1] += 1/Zpu
 
         return Ybus
-    
+
 
     def calc_negative(self):
         """
@@ -746,7 +854,7 @@ class UnsymmetricalFaults():
         for gen in self.circuit.generators.values():
             index = self.circuit.buses[gen.bus].index-1
             Ynbus[index, index] += 1/(gen.X2)
-        
+
         if len(self.circuit.loads) != 0:
             for load in self.circuit.loads.values():
                 bus = load.bus  # bus name as a string
@@ -758,9 +866,9 @@ class UnsymmetricalFaults():
                 Z = V/I
                 Zpu = Z/Zbase
                 Ynbus[index-1, index-1] += 1/Zpu
-                
+
         return Ynbus
-    
+
 
     def SLG_fault_values(self):
         """
@@ -776,7 +884,7 @@ class UnsymmetricalFaults():
         self.print_voltages()
         print()
         print()
-    
+
 
     def LL_fault_values(self):
         """
@@ -821,7 +929,7 @@ class UnsymmetricalFaults():
         pd.set_option('display.width', 1000)
         print(self.Y0df.to_string())
 
-    
+
     def print_Ypbus(self):
         """
         Prints the system's positive sequence admittance matrix.
@@ -844,7 +952,7 @@ class UnsymmetricalFaults():
         pd.set_option('display.max_columns', None)
         pd.set_option('display.width', 1000)
         print(self.Yndf.to_string())
-    
+
 
     def print_current(self):
         """
@@ -855,7 +963,7 @@ class UnsymmetricalFaults():
         angles = np.rad2deg(np.angle(self.Ipn)).round(2)
         magnitude = np.abs(self.Ipn).round(3)
         data = np.concatenate((magnitude, angles), axis=1)
-    
+
         print("Subtransient Phase Current")
         current_df = pd.DataFrame(data, index=["A", "B", "C"], columns=["Magnitude(pu)", "Angle(deg)"])
         pd.set_option('display.max_rows', None)
@@ -871,16 +979,16 @@ class UnsymmetricalFaults():
         :return:
         """
         fault_angles = np.rad2deg(np.angle(self.fault_voltages)).round(2)
-        fault_voltages_df = pd.DataFrame(np.block([np.abs(self.fault_voltages).round(5), fault_angles]), index=self.circuit.bus_order, columns=["Phase A", "Phase B", "Phase C", 
+        fault_voltages_df = pd.DataFrame(np.block([np.abs(self.fault_voltages).round(5), fault_angles]), index=self.circuit.bus_order, columns=["Phase A", "Phase B", "Phase C",
                                                                                                                                "Phase A Angle", "Phase B Angle","Phase C Angle"])
         pd.set_option('display.max_rows', None)
         pd.set_option('display.max_columns', None)
         pd.set_option('display.width', 1000)
         print(fault_voltages_df.to_string())
-    
+
 
 # validation tests
 if __name__ == '__main__':
-    
+
     import Validations
-    Validations.SevenPowerBusSystemValidation()
+    Validations.DyanamicSolarSevenBusValidation()

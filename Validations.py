@@ -41,6 +41,27 @@ def CreateSevenPowerBusSystem():
     return circ
 
 
+def StaticSolarSevenBusValidation():
+    circ = CreateSevenPowerBusSystem()
+    circ.add_solar("Solar1", "bus7", 20, 1, "unity")
+    ImpedanceValidation(circ)
+    YbusValidation(circ, r"Excel_Files\SevenBus\7bus_Ybus_matrix.xlsx")
+    DCPowerFlowValidation(circ)
+    FastDecoupledValidation(circ)
+    NewtonRaphValidation(circ)
+
+
+def DyanamicSolarSevenBusValidation():
+    circ = CreateSevenPowerBusSystem()
+    ImpedanceValidation(circ)
+    YbusValidation(circ, r"Excel_Files\SevenBus\7bus_Ybus_matrix.xlsx")
+    DCPowerFlowValidation(circ)
+    FastDecoupledValidation(circ)
+    NewtonRaphValidation(circ)
+    circ.add_solar("Solar1", "bus7", 20, 1, "unity")
+    circ.sweep_solar(True)
+
+
 def SevenPowerBusSystemValidation():
     circ = CreateSevenPowerBusSystem()
     #circ.change_slack("bus1", "bus7")

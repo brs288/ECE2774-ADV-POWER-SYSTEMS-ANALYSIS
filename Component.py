@@ -18,6 +18,8 @@ class Load:
         """
         self.name = name
         self.bus = bus
+        self.real_rated = real_power*1e6
+        self.reactive_rated = reactive_power*1e6
         self.real_power = real_power*1e6
         self.reactive_power = reactive_power*1e6
         self.Smag = (self.real_power**2 + self.reactive_power**2)**(1/2)
