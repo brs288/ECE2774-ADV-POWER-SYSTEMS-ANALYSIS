@@ -400,3 +400,26 @@ class UnsymmetricalFaultParameters {
     + DLG_fault_values(): np.ndarray, float, np.ndarray
 }
 @enduml
+
+
+@startuml Solar
+class Solar {
+    ' Attributes initialized via constructor parameters (Red Square)
+    - name: str
+    - bus: str
+    - real_rated: float  '' Derived from real_power param in constructor
+    - power_factor: float
+    - pf_mode: str
+    - real_power: float
+    ' Attributes calculated/set internally (Green Circle)
+    + reactive_power: float '' Calculated within __init__ and setters
+    + apparent_power: complex '' Calculated within __init__ and setters
+
+    ' Methods (Solid Green Circle)
+    + calculate_q() : float
+    + set_real_power(real_power: float) : void
+    + set_power_factor(power_factor: float, pf_mode: str) : void
+    + get_s() : complex
+    + __str__() : str
+}
+@enduml

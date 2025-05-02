@@ -13,16 +13,6 @@ import pandas as pd
 from math import sin, cos
 
 
-class SolarSweep:
-    def __init__(self, circuit: Circuit):
-        self.circuit = circuit
-        self.solar_name = []
-        self.solar_object = []
-        for solar_name, solar_object in circuit.solar.items():
-            self.solar_name.append(solar_name)
-            self.solar_object.append(solar_object)
-
-
 class NewtonRaphson:
 
     def __init__(self, circuit: Circuit, var_limit: bool):
