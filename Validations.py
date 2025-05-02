@@ -41,6 +41,30 @@ def CreateSevenPowerBusSystem():
     return circ
 
 
+def Testing_Scenario1():
+    # Scenario 1: Static solar panel test with seven power bus system and solar generation at bus7
+    circ = CreateSevenPowerBusSystem()
+
+    # Added PV generation at bus7 with 50 MW at 0.95 lagging power factor
+    circ.add_solar("Solar_Scenario1", "bus7", 50, 0.95, "lagging")
+
+    # NewtonRaphson algorithm performed on this circuit - compare this with PowerWorld
+    print(f"PROJECT 3 SCENARIO 1: TEST\n")
+    NewtonRaphValidation(circ)
+
+
+def Testing_Scenario2():
+    # Scenario 2: Testing solar generation over time on seven bus system at bus7
+    circ = CreateSevenPowerBusSystem()
+
+    # Added PV generation at bus7 with 20 MW at 1 unity power factor
+    circ.add_solar("Solar_Scenario2", "bus7", 20, 1, "unity")
+
+    # Perform sweep over day on circuit (also output results to csv for analysis)
+    print(f"PROJECT 3 SCENARIO 2: TEST\n")
+    circ.sweep_solar(True, True)
+
+
 def StaticSolarSevenBusValidation():
     circ = CreateSevenPowerBusSystem()
     circ.add_solar("Solar1", "bus7", 20, 1, "unity")

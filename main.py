@@ -1,37 +1,49 @@
-from Circuit import Circuit
+import Validations
 
-circ = Circuit("Example_7bus")
+"""Verify test scenarios"""
 
-circ.change_power_base(100)
+# circ.add_solar("Solar_Scenario1", "bus7", 50, 0.95, "lagging")
+Validations.Testing_Scenario1()
 
-circ.add_bus("bus1", 20)
-circ.add_bus("bus2", 230)
-circ.add_bus("bus3", 230)
-circ.add_bus("bus4", 230)
-circ.add_bus("bus5", 230)
-circ.add_bus("bus6", 230)
-circ.add_bus("bus7", 18)
+# circ.add_solar("Solar_Scenario2", "bus7", 20, 1, "unity") ... also sweep
+Validations.Testing_Scenario2()
 
-circ.add_transformer("T1", "D-Y", "bus1", "bus2", 125, 8.5, 10, 0.0018904)
-circ.add_transformer("T2", "Y-D", "bus6", "bus7", 200, 10.5, 12)
+"""Verify edge and fail cases"""
 
-circ.add_conductor("Partridge", 0.642, 0.0217, 0.385, 460)
-circ.add_geometry("Geometry7bus", [0, 19.5, 39], [0, 0, 0])
-circ.add_bundle("Bundle7bus", 2, 1.5, "Partridge")
+# These can be set to True for testing purposes
+fail_case_1 = False
+fail_case_2 = False
 
-circ.add_tline_from_geometry("L1", "bus2", "bus4", "Bundle7bus", "Geometry7bus", 10)
-circ.add_tline_from_geometry("L2", "bus2", "bus3", "Bundle7bus", "Geometry7bus", 25)
-circ.add_tline_from_geometry("L3", "bus3", "bus5", "Bundle7bus", "Geometry7bus", 20)
-circ.add_tline_from_geometry("L4", "bus4", "bus6", "Bundle7bus", "Geometry7bus", 20)
-circ.add_tline_from_geometry("L5", "bus5", "bus6", "Bundle7bus", "Geometry7bus", 10)
-circ.add_tline_from_geometry("L6", "bus4", "bus5", "Bundle7bus", "Geometry7bus", 35)
+circ1 = Validations.CreateSevenPowerBusSystem()
+circ2 = Validations.CreateSevenPowerBusSystem()
+circ3 = Validations.CreateSevenPowerBusSystem()
 
-circ.add_generator("Gen1", "bus1", 1, 0, 0.12, 0.14, 0.05, 0)
-circ.add_generator("Gen2", "bus7", 1, 200, 0.12, 0.14, 0.05, 0.30864)
+# Test 1: Solar generates no power
+print("---EDGE CASE 1: 0 MW 0 MVAR---\n\n")
+circ1.add_solar("Edge_Case1", "bus7", 0, 1, "unity")
+Validations.NewtonRaphValidation(circ1)
 
-circ.add_load("Load1", "bus3", 110, 50)
-circ.add_load("Load2", "bus4", 100, 70)
-circ.add_load("Load3", "bus5", 100, 65)
+# Test 2: Assign solar to slack
+print("---EDGE CASE 2: 50 MW at bus1 ---\n\n")
+circ2.add_solar("Edge_Case2", "bus1", 50, 1, "unity")
+Validations.NewtonRaphValidation(circ2)
 
+# Test 3: Add solar to bus that does not exist
+print("---EDGE CASE 3: Add solar to non-existent bus---\n\n")
+circ3.add_solar("Edge_Case3", "EDGE_CASE_3", 50, 1, "unity")
 
+if fail_case_1:
+    circ = Validations.CreateSevenPowerBusSystem()
 
+    # Test 1: Make solar with power factor outside 0 < pf <= 1
+    print("---FAIL CASE 1: 0 MW 50 MVAR---\n\n")
+    circ.add_solar("Fail_Case1", "bus7", 50, -1, "lagging")
+    Validations.NewtonRaphValidation(circ)
+
+if fail_case_2:
+    circ = Validations.CreateSevenPowerBusSystem()
+
+    # Test 2: Faulty power factor mode
+    print("---FAIL CASE 2: Faulty power factor mode---\n\n")
+    circ.add_solar("Fail_Case2", "bus7", 50, 0.95, "FAIL CASE 2")
+    Validations.NewtonRaphValidation(circ)

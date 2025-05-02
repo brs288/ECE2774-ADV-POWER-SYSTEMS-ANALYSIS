@@ -127,24 +127,32 @@ class Circuit:
         if self.changed is True:
             self.calc_Ybus()
             self.changed = False
+
+        # Iterate through 24 hours
         for time in range(24):
+            # Modify power generated/consumed by PVs and loads dependent on time
             self.modify_solar(Constants.solar_profile[time])
             if dynamic_load:
                 self.modify_load(Constants.load_profile_factor[time])
+
+            # Solution based on current time iteration
             solution = NewtonRaphson(self, False)
             self.x, self.y = solution.newton_raph()
             self.voltages = self.to_rectangular()
             self.update_voltages_and_angles()
             self.update_generator_power()
+
+            # Store results for analysis
             self.solar_sweep_data["time"].append(time)
             self.solar_sweep_data["x_data"].append(self.x)
             self.solar_sweep_data["y_data"].append(self.y)
-            print(f"Time = {time} hr")
-            self.print_data()
+
+            # Set circuit back to default for next iteration
             self.modify_solar(Constants.solar_profile[time], True)
             if dynamic_load:
                 self.modify_load(Constants.load_profile_factor[time], True)
 
+        # Print to csv
         if csv:
             self.write_sweep_results_to_csv()
 
@@ -158,10 +166,12 @@ class Circuit:
         """
         for solar in self.solar.values():
             bus = self.buses[solar.bus]
+            # Restore circuit to rated state
             if restore_default is True:
                 solar.real_power = solar.real_rated
                 bus.subtract_power(solar.real_rated * irradiance, 0)
                 bus.set_power(solar.real_rated, 0)
+            # Adjust power by time factor
             else:
                 solar.real_power = solar.real_rated * irradiance
                 bus.subtract_power(solar.real_rated, 0)
@@ -177,11 +187,13 @@ class Circuit:
         """
         for load in self.loads.values():
             bus = self.buses[load.bus]
+            # Restore circuit to rated
             if restore_default is True:
                 load.real_power = load.real_rated
                 load.reactive_power = load.reactive_rated
                 bus.set_power(load.real_rated * factor, load.reactive_rated * factor)
                 bus.subtract_power(load.real_rated, load.reactive_rated)
+            # Modify load power consumption by time factor
             else:
                 load.real_power = load.real_rated * factor
                 load.reactive_power = load.reactive_rated * factor
@@ -194,6 +206,7 @@ class Circuit:
         Writes the collected solar sweep data (voltages, angles, powers) to a CSV file.
         :param filename: The name of the CSV file to create.
         """
+        # Check if sweep has been run first
         if not self.solar_sweep_data["time"]:
             print("No sweep data available to write. Run 'sweep_solar' first.")
             return
@@ -201,6 +214,7 @@ class Circuit:
         all_rows_data = []
         num_steps = len(self.solar_sweep_data["time"])
 
+        # Organize data into dataframe
         for i in range(num_steps):
             time_step = self.solar_sweep_data["time"][i]
             x_df = self.solar_sweep_data["x_data"][i]
@@ -225,6 +239,7 @@ class Circuit:
             if col.startswith('d'):
                 results_df[col] = np.degrees(results_df[col])
 
+        # Sort columns before writing
         time_col = ['time_hour']
         v_cols = sorted([col for col in results_df.columns if col.startswith('V')])
         d_cols = sorted([col for col in results_df.columns if col.startswith('d')])
@@ -1052,4 +1067,5 @@ class UnsymmetricalFaults():
 if __name__ == '__main__':
 
     import Validations
-    Validations.DyanamicSolarSevenBusValidation()
+    Validations.Testing_Scenario1()
+    Validations.Testing_Scenario2()
